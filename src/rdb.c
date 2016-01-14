@@ -39,7 +39,40 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
+//MK ADD
+void rdbPrepare( void )
+{
+    SERVER_CUR_UPDATE(server.server_cur);
+}
+void *rdbThread( void *arg)
+{
+    int old_type;
+    unsigned char expected_val;
+    redisLog(REDIS_NOTICE,"RDB thread start.");
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,&old_type);
+    while (1){
+        expected_val = SERVER_CKP;
 
+        if(__atomic_compare_exchange_1(&server.server_state,
+                                       &expected_val,
+                                       SERVER_CKP,
+                                       1,
+                                       __ATOMIC_SEQ_CST,
+                                       __ATOMIC_SEQ_CST)){
+
+            if ( rdbSave(server.rdb_filename) == REDIS_OK){
+                redisLog(REDIS_WARNING,"Checkpoint Success.");
+            }else{
+                redisLog(REDIS_WARNING,"Checkpoint Fail!");
+            }
+            __atomic_store_1(&server.server_state,SERVER_NORMAL,__ATOMIC_SEQ_CST);
+        }else{
+            usleep(100000);
+        }
+    }
+    pthread_exit(NULL);
+}
+//MK END
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
@@ -570,14 +603,18 @@ int rdbSaveObject(rio *rdb, robj *o) {
         } else if (o->encoding == REDIS_ENCODING_HT) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
-
+            dict *d = o->ptr;
+            redisAssert(*(d->cur) == server.server_cur);
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
-                robj *val = dictGetVal(de);
-
+                robj *val = mkGetValBkp(&de->v.mk);
+                if ( de->v.mk.writed == *(d->cur))
+                    continue;
+                if ( !val)
+                    continue;
                 if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
                 nwritten += n;
                 if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
@@ -662,12 +699,16 @@ int rdbSaveRio(rio *rdb, int *error) {
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
+            robj key, *o = mkGetValBkp(&de->v.mk);
             long long expire;
-
+            if ( de->v.mk.writed == *(d->cur))
+                continue;
+            if ( !o)
+                continue;
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
+            mkStateConvert(d,&de->v.mk,OP_W2D,NULL,*(d->cur));
         }
         dictReleaseIterator(di);
     }
