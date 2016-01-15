@@ -208,4 +208,6 @@ extern dictType dictTypeHeapStringCopyKeyValue;
 //MK ADD
 int mkStateConvert(dict *d, struct MonkeyKing *mk,unsigned char operation,void *val,unsigned char cur);
 void *mkGetValBkp(struct MonkeyKing *mk);
+void mkHold(struct MonkeyKing *mk);
+void mkRelease(struct MonkeyKing *mk);
 #endif /* __DICT_H */

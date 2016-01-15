@@ -257,10 +257,14 @@ void mkStateFunctionMatrixInit( void)
 }
 void *mkGetValBkp(struct MonkeyKing *mk)
 {
+    void *retval;
+    mkHold(mk);
     if ( mk->bkp)
-        return mk->bkp;
+        retval = mk->bkp;
     else
-        return mk->now;
+        retval = mk->now;
+    mkRelease(mk);
+    return retval;
 }
 unsigned char getRealState(struct MonkeyKing *mk,unsigned char cur)
 {
@@ -287,20 +291,37 @@ unsigned char getRealState(struct MonkeyKing *mk,unsigned char cur)
             return 255;
     }
 }
+void mkHold(struct MonkeyKing *mk)
+{
+    unsigned char expect_free = MK_ACCESS_FREE;
+    while(!__atomic_compare_exchange_1(&mk->access,
+                                      &expect_free,
+                                      MK_ACCESS_BUSY,
+                                      0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)){
+        usleep(100);
+        expect_free = MK_ACCESS_FREE;
+    }
+}
+void mkRelease(struct MonkeyKing *mk)
+{
+    __atomic_store_1(&mk->access,MK_ACCESS_FREE,__ATOMIC_SEQ_CST);
+}
 int mkStateConvert(dict *d, struct MonkeyKing *mk,unsigned char operation,void *val,unsigned char cur)
 {
     unsigned char state;
     state = getRealState(mk,cur);
     if ( StateConvertMatrix[state][operation]){
-
+        //add sync control
         mkAssertMatrix[state](mk,cur);
 
-        assert(cur < 2);
-        if (operation == OP_UPDATE)
-            assert(val != NULL);
-        else
-            assert(val == NULL);
-        StateConvertMatrix[state][operation](d,mk,val);
+        if (OP_W2D != operation){
+            mkHold(mk);
+            StateConvertMatrix[state][operation](d,mk,val);
+            mkRelease(mk);
+        }
+        else{
+            StateConvertMatrix[state][operation](d,mk,val);
+        }
         state = getRealState(mk,cur);
         mkAssertMatrix[state](mk,cur);
         return 1;
@@ -608,7 +629,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
     //MK ADD
-    entry->v.mk.access = MK_ACCESS_BUSY;
+    entry->v.mk.access = MK_ACCESS_FREE;
     entry->v.mk.bkp = NULL;
     entry->v.mk.now = NULL;
     entry->v.mk.state = MK_NORMAL;

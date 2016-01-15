@@ -610,7 +610,9 @@ int rdbSaveObject(rio *rdb, robj *o) {
 
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
+
                 robj *val = mkGetValBkp(&de->v.mk);
+
                 if ( de->v.mk.writed == *(d->cur))
                     continue;
                 if ( !val)
@@ -708,7 +710,6 @@ int rdbSaveRio(rio *rdb, int *error) {
                 continue;
 
             initStaticStringObject(key,keystr);
-            redisLog(REDIS_NOTICE,"Save key:%s",key.ptr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
 
