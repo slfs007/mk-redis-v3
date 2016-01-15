@@ -686,15 +686,15 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                         mkStateConvert(d,&he->v.mk,OP_DEL,NULL,*(d->cur));
                     }
                     zfree(he);
-                    d->ht[table].used--;
-                    return DICT_OK;
                 }
                 else{
                     if (!nofree){
                         mkStateConvert(d,&he->v.mk,OP_DEL,NULL,*(d->cur));
                     }
-                    return DICT_OK;
+
                 }
+                d->ht[table].used--;
+                return DICT_OK;
             }
             prevHe = he;
             he = he->next;
@@ -873,8 +873,6 @@ void dictReleaseIterator(dictIterator *iter)
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
             iter->d->iterators--;
-        else
-            assert(iter->fingerprint == dictFingerprint(iter->d));
     }
     zfree(iter);
 }

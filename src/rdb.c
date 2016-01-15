@@ -619,6 +619,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
                 nwritten += n;
                 if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
                 nwritten += n;
+                mkStateConvert(d,&de->v.mk,OP_W2D,NULL,*(d->cur));
             }
             dictReleaseIterator(di);
 
@@ -705,9 +706,12 @@ int rdbSaveRio(rio *rdb, int *error) {
                 continue;
             if ( !o)
                 continue;
+
             initStaticStringObject(key,keystr);
+            redisLog(REDIS_NOTICE,"Save key:%s",key.ptr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
+
             mkStateConvert(d,&de->v.mk,OP_W2D,NULL,*(d->cur));
         }
         dictReleaseIterator(di);

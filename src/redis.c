@@ -2352,11 +2352,16 @@ int prepareForShutdown(int flags) {
             usleep(100000);
         }
         rdbPrepare();
-        if (rdbSave(server.rdb_filename) != REDIS_OK){
-            redisLog(REDIS_WARNING,"Checkpoint fail!");
-        }else{
-            redisLog(REDIS_WARNING,"Checkpoint success!");
+        __atomic_store_1(&server.server_state,SERVER_CKP,__ATOMIC_SEQ_CST);
+        while( !__atomic_compare_exchange_1(&server.server_state,
+                                           &expected_val,SERVER_NORMAL,
+                                           1,__ATOMIC_SEQ_CST,
+                                           __ATOMIC_SEQ_CST))
+        {
+            expected_val = SERVER_NORMAL;
+            usleep(100000);
         }
+
     }
     if (server.daemonize) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
