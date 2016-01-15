@@ -313,7 +313,7 @@ int mkStateConvert(dict *d, struct MonkeyKing *mk,unsigned char operation,void *
 
 //    mkAssertMatrix[state](mk,cur);
 
-    if (d->server_state == SERVER_CKP){
+    if (*(d->server_state) == SERVER_CKP){
         mkHold(mk);
         StateConvertMatrix[state][operation](d,mk,val);
         mkRelease(mk);
