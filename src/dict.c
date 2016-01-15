@@ -298,7 +298,7 @@ void mkHold(struct MonkeyKing *mk)
                                       &expect_free,
                                       MK_ACCESS_BUSY,
                                       0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)){
-        usleep(100);
+        usleep(10);
         expect_free = MK_ACCESS_FREE;
     }
 }
@@ -310,26 +310,22 @@ int mkStateConvert(dict *d, struct MonkeyKing *mk,unsigned char operation,void *
 {
     unsigned char state;
     state = getRealState(mk,cur);
-    if ( StateConvertMatrix[state][operation]){
-        //add sync control
-        mkAssertMatrix[state](mk,cur);
 
-        if (OP_W2D != operation){
-            mkHold(mk);
-            StateConvertMatrix[state][operation](d,mk,val);
-            mkRelease(mk);
-        }
-        else{
-            StateConvertMatrix[state][operation](d,mk,val);
-        }
-        state = getRealState(mk,cur);
-        mkAssertMatrix[state](mk,cur);
-        return 1;
+//    mkAssertMatrix[state](mk,cur);
+
+    if (d->server_state == SERVER_CKP){
+        mkHold(mk);
+        StateConvertMatrix[state][operation](d,mk,val);
+        mkRelease(mk);
     }
     else{
-        printf("FATAL ERROR:Unvalid state convert!state %d,operation %d\n",(int)mk->state,(int)operation);
-        exit(1);
+        StateConvertMatrix[state][operation](d,mk,val);
     }
+//    state = getRealState(mk,cur);
+//    mkAssertMatrix[state](mk,cur);
+    return 1;
+
+
 }
 /* -------------------------- hash functions -------------------------------- */
 
@@ -450,8 +446,10 @@ int _dictInit(dict *d, dictType *type,
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
+    //MK ADD
     mkStateFunctionMatrixInit();
     d->cur = &server.server_cur;
+    d->server_state = &server.server_state;
     return DICT_OK;
 }
 
