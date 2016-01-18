@@ -64,6 +64,7 @@ static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+
 /* -------------------------- hash functions -------------------------------- */
 
 /* Thomas Wang's 32 bit Mix Function */
@@ -183,10 +184,6 @@ int _dictInit(dict *d, dictType *type,
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
-    //MK ADD
-
-    d->cur = &server.server_cur;
-    d->server_state = &server.server_state;
     return DICT_OK;
 }
 
@@ -327,8 +324,7 @@ int dictAdd(dict *d, void *key, void *val)
     dictEntry *entry = dictAddRaw(d,key);
 
     if (!entry) return DICT_ERR;
-    mkSetNow(&entry->v.mk,val);
-    mkNormalW_Assert(&entry->v.mk);
+    dictSetVal(d, entry, val);
     return DICT_OK;
 }
 
@@ -363,9 +359,6 @@ dictEntry *dictAddRaw(dict *d, void *key)
     /* Allocate the memory and store the new entry */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
-    //MK ADD
-    mkInit(&entry->v.mk,d->type->valDup,d->type->valDestructor,d->cur);
-    //MK END
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -381,7 +374,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
  * operation. */
 int dictReplace(dict *d, void *key, void *val)
 {
-    dictEntry *entry;
+    dictEntry *entry, auxentry;
 
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
@@ -394,7 +387,9 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-    mkStateConvert(&entry->v.mk,OP_UPDATE,val,server.server_state);
+    auxentry = *entry;
+    dictSetVal(d, entry, val);
+    dictFreeVal(d, &auxentry);
     return 0;
 }
 
@@ -427,24 +422,16 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
         prevHe = NULL;
         while(he) {
             if (dictCompareKeys(d, key, he->key)) {
-                if (he->v.mk.writed == *(d->cur)){
-                    /* Unlink the element from the list */
-                    if (prevHe)
-                        prevHe->next = he->next;
-                    else
-                        d->ht[table].table[idx] = he->next;
-                    if (!nofree) {
-                        dictFreeKey(d,he);
-                        mkStateConvert(&he->v.mk,OP_DEL,NULL,server.server_state);
-                    }
-                    zfree(he);
+                /* Unlink the element from the list */
+                if (prevHe)
+                    prevHe->next = he->next;
+                else
+                    d->ht[table].table[idx] = he->next;
+                if (!nofree) {
+                    dictFreeKey(d, he);
+                    dictFreeVal(d, he);
                 }
-                else{
-                    if (!nofree){
-                        mkStateConvert(&he->v.mk,OP_DEL,NULL,server.server_state);
-                    }
-
-                }
+                zfree(he);
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -478,7 +465,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
         while(he) {
             nextHe = he->next;
             dictFreeKey(d, he);
-            mkStateConvert(&he->v.mk,OP_DEL,NULL,server.server_state);
+            dictFreeVal(d, he);
             zfree(he);
             ht->used--;
             he = nextHe;
@@ -625,6 +612,8 @@ void dictReleaseIterator(dictIterator *iter)
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
             iter->d->iterators--;
+        else
+            assert(iter->fingerprint == dictFingerprint(iter->d));
     }
     zfree(iter);
 }

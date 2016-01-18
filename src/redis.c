@@ -32,7 +32,6 @@
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
-#include "mk.h"
 
 #include <time.h>
 #include <signal.h>
@@ -412,13 +411,15 @@ void exitFromChild(int retcode) {
  * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
-void dictVanillaFree(void *val)
+void dictVanillaFree(void *privdata, void *val)
 {
+    DICT_NOTUSED(privdata);
     zfree(val);
 }
 
-void dictListDestructor(void *val)
+void dictListDestructor(void *privdata, void *val)
 {
+    DICT_NOTUSED(privdata);
     listRelease((list*)val);
 }
 
@@ -444,15 +445,17 @@ int dictSdsKeyCaseCompare(void *privdata, const void *key1,
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictRedisObjectDestructor(void *val)
+void dictRedisObjectDestructor(void *privdata, void *val)
 {
+    DICT_NOTUSED(privdata);
+
     if (val == NULL) return; /* Values of swapped out keys as set to NULL */
     decrRefCount(val);
 }
 
-void dictSdsDestructor(void *val)
+void dictSdsDestructor(void *privdata, void *val)
 {
-
+    DICT_NOTUSED(privdata);
 
     sdsfree(val);
 }
@@ -1158,32 +1161,73 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         rewriteAppendOnlyFileBackground();
     }
 
-    unsigned char expected_val = SERVER_NORMAL;
-    if (  __atomic_compare_exchange_1(&server.server_state,&expected_val,SERVER_NORMAL,1,__ATOMIC_SEQ_CST,__ATOMIC_SEQ_CST)){
-    /* If there is not a background saving/rewrite in progress check if
-    * we have to save/rewrite now */
-        for (j = 0; j < server.saveparamslen; j++) {
+    /* Check if a background saving or AOF rewrite in progress terminated. */
+    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
+        int statloc;
+        pid_t pid;
+
+        if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
+            int exitcode = WEXITSTATUS(statloc);
+            int bysignal = 0;
+
+            if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
+
+            if (pid == -1) {
+                redisLog(LOG_WARNING,"wait3() returned an error: %s. "
+                    "rdb_child_pid = %d, aof_child_pid = %d",
+                    strerror(errno),
+                    (int) server.rdb_child_pid,
+                    (int) server.aof_child_pid);
+            } else if (pid == server.rdb_child_pid) {
+                backgroundSaveDoneHandler(exitcode,bysignal);
+            } else if (pid == server.aof_child_pid) {
+                backgroundRewriteDoneHandler(exitcode,bysignal);
+            } else {
+                redisLog(REDIS_WARNING,
+                    "Warning, detected child with unmatched pid: %ld",
+                    (long)pid);
+            }
+            updateDictResizePolicy();
+        }
+    } else {
+        /* If there is not a background saving/rewrite in progress check if
+         * we have to save/rewrite now */
+         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
             /* Save if we reached the given amount of changes,
-            * the given amount of seconds, and if the latest bgsave was
-            * successful or if, in case of an error, at least
-            * REDIS_BGSAVE_RETRY_DELAY seconds already elapsed. */
+             * the given amount of seconds, and if the latest bgsave was
+             * successful or if, in case of an error, at least
+             * REDIS_BGSAVE_RETRY_DELAY seconds already elapsed. */
             if (server.dirty >= sp->changes &&
                 server.unixtime-server.lastsave > sp->seconds &&
                 (server.unixtime-server.lastbgsave_try >
-                REDIS_BGSAVE_RETRY_DELAY ||
-                server.lastbgsave_status == REDIS_OK))
-                {
-                    redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
-                     sp->changes, (int)sp->seconds);
-                    //PP MODIFY
-                    rdbPrepare();
-                    __atomic_store_1(&server.server_state,SERVER_CKP,__ATOMIC_SEQ_CST);
-                    break;
+                 REDIS_BGSAVE_RETRY_DELAY ||
+                 server.lastbgsave_status == REDIS_OK))
+            {
+                redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
+                    sp->changes, (int)sp->seconds);
+                rdbSaveBackground(server.rdb_filename);
+                break;
             }
-        }
+         }
+
+         /* Trigger an AOF rewrite if needed */
+         if (server.rdb_child_pid == -1 &&
+             server.aof_child_pid == -1 &&
+             server.aof_rewrite_perc &&
+             server.aof_current_size > server.aof_rewrite_min_size)
+         {
+            long long base = server.aof_rewrite_base_size ?
+                            server.aof_rewrite_base_size : 1;
+            long long growth = (server.aof_current_size*100/base) - 100;
+            if (growth >= server.aof_rewrite_perc) {
+                redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
+                rewriteAppendOnlyFileBackground();
+            }
+         }
     }
+
 
     /* AOF postponed flush: Try at every cron cycle if the slow fsync
      * completed. */
@@ -1724,16 +1768,7 @@ void initServer(void) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
     }
-    //MK ADD
-    server.server_state = SERVER_NORMAL;
-    server.server_cur = SERVER_CUR_INIT;
-    mkStateFunctionMatrixInit();
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
-    pthread_create(&server.rdbThread_id,&attr,rdbThread,NULL);
 
-    //MK END
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
@@ -2341,26 +2376,15 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        unsigned char expected_val = SERVER_NORMAL;
-        while( !__atomic_compare_exchange_1(&server.server_state,
-                                           &expected_val,SERVER_NORMAL,
-                                           1,__ATOMIC_SEQ_CST,
-                                           __ATOMIC_SEQ_CST))
-        {
-            expected_val = SERVER_NORMAL;
-            usleep(100000);
+        if (rdbSave(server.rdb_filename) != REDIS_OK) {
+            /* Ooops.. error saving! The best we can do is to continue
+             * operating. Note that if there was a background saving process,
+             * in the next cron() Redis will be notified that the background
+             * saving aborted, handling special stuff like slaves pending for
+             * synchronization... */
+            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit.");
+            return REDIS_ERR;
         }
-        rdbPrepare();
-        __atomic_store_1(&server.server_state,SERVER_CKP,__ATOMIC_SEQ_CST);
-        while( !__atomic_compare_exchange_1(&server.server_state,
-                                           &expected_val,SERVER_NORMAL,
-                                           1,__ATOMIC_SEQ_CST,
-                                           __ATOMIC_SEQ_CST))
-        {
-            expected_val = SERVER_NORMAL;
-            usleep(100000);
-        }
-
     }
     if (server.daemonize) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");

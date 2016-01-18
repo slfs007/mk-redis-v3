@@ -34,8 +34,7 @@
  */
 
 #include <stdint.h>
-#include "redis.h"
-#include "mk.h"
+
 #ifndef __DICT_H
 #define __DICT_H
 
@@ -45,11 +44,10 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
-
 typedef struct dictEntry {
     void *key;
     union {
-        struct MonkeyKing mk;
+        void *val;
         uint64_t u64;
         int64_t s64;
         double d;
@@ -60,10 +58,10 @@ typedef struct dictEntry {
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(const void *obj);
+    void *(*valDup)(void *privdata, const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *key);
-    void (*valDestructor)(void *obj);
+    void (*keyDestructor)(void *privdata, void *key);
+    void (*valDestructor)(void *privdata, void *obj);
 } dictType;
 
 /* This is our hash table structure. Every dictionary has two of this as we
@@ -81,9 +79,6 @@ typedef struct dict {
     dictht ht[2];
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     int iterators; /* number of iterators currently running */
-    //MK ADD
-    unsigned char *cur;
-    unsigned char *server_state;
 } dict;
 
 /* If safe is set to 1 this is a safe iterator, that means, you can call
@@ -105,7 +100,16 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
+#define dictFreeVal(d, entry) \
+    if ((d)->type->valDestructor) \
+        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
 
+#define dictSetVal(d, entry, _val_) do { \
+    if ((d)->type->valDup) \
+        entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
+    else \
+        entry->v.val = (_val_); \
+} while(0)
 
 #define dictSetSignedIntegerVal(entry, _val_) \
     do { entry->v.s64 = _val_; } while(0)
@@ -118,7 +122,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((entry)->key)
+        (d)->type->keyDestructor((d)->privdata, (entry)->key)
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
@@ -134,8 +138,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
-//MK Modify
-#define dictGetVal(he) ((he)->v.mk.now)
+#define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
@@ -178,6 +181,5 @@ unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *pri
 extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapStringCopyKeyValue;
-//MK ADD
 
 #endif /* __DICT_H */
