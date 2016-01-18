@@ -64,269 +64,6 @@ static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
-/* -------------------------- mk functions -------------------------------- */
-void (*StateConvertMatrix[MK_MAX][OP_MAX])(dict *d,struct MonkeyKing *,void *);
-void (*mkAssertMatrix[MK_MAX])(struct MonkeyKing *mk,unsigned char cur);
-
-void mkNormalW_Assert(struct MonkeyKing *mk,unsigned char cur)
-{
-    assert(mk->state == MK_NORMAL);
-    assert(mk->now != NULL);
-    assert(mk->bkp == NULL);
-    assert(mk->writed == cur);
-}
-void mkNormalUW_Assert(struct MonkeyKing *mk,unsigned char cur)
-{
-    assert(mk->state == MK_NORMAL);
-    assert(mk->now != NULL);
-    assert(mk->bkp == NULL);
-    assert(mk->writed != cur);
-}
-void mkUpdateUW_Assert(struct MonkeyKing *mk,unsigned char cur)
-{
-    assert(mk->state == MK_UPDATE);
-    assert(mk->now != NULL);
-    assert(mk->bkp != NULL);
-    assert(mk->writed != cur);
-}
-void mkEmptyW_Assert(struct MonkeyKing *mk,unsigned char cur)
-{
-    assert(mk->state == MK_EMPTY);
-    assert(mk->now == NULL);
-    assert(mk->bkp == NULL);
-    assert(mk->writed == cur);
-}
-void mkEmptyUW_Assert(struct MonkeyKing *mk,unsigned char cur)
-{
-    assert(mk->state == MK_EMPTY);
-    assert(mk->now == NULL);
-    assert(mk->bkp != NULL);
-    assert(mk->writed != cur);
-}
-//normal_w
-void mkFreeValNow(dict *d,struct MonkeyKing *mk)
-{
-    assert(mk->now != NULL);
-    if (d->type->valDestructor)
-        d->type->valDestructor(d->privdata,mk->now);
-    mk->now = NULL;
-}
-void mkFreeValBkp(dict *d,struct MonkeyKing *mk)
-{
-    assert(mk->bkp != NULL);
-    if (d->type->valDestructor)
-        d->type->valDestructor(d->privdata,mk->bkp);
-    mk->bkp = NULL;
-}
-void mkSetValNow(dict *d,struct MonkeyKing *mk,void *val)
-{
-    assert(mk->now == NULL);
-    if (d->type->valDup)
-        mk->now = d->type->valDup(d->privdata,val);
-    else
-        mk->now = val;
-}
-void mkNormalW_Del(dict *d, struct MonkeyKing *mk,void *val)
-{
-    // NormalW-->Del-->Empty_W
-    assert( val == NULL);
-    mkFreeValNow(d,mk);
-    mk->state = MK_EMPTY;
-}
-void mkNormalW_Update(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //NormalW-->Update-->NormalW
-    assert( val != NULL);
-    mkFreeValNow(d,mk);
-    mkSetValNow(d,mk,val);
-}
-//normal_uw
-void mkNormalUW_Update(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //NormalUW --> update --> Update_UW
-    assert(val != NULL);
-    mkFreeValNow(d,mk);
-    mkSetValNow(d,mk,val);
-}
-void mkNormalUW_Del(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //NormalUW-->Del-->Empty_UW
-    assert( val == NULL);
-    assert( d != NULL);
-    mk->bkp = mk->now;
-    mk->now = NULL;
-    mk->state = MK_NORMAL;
-}
-void mkNormalUW_W2D(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //NormalUW-->W2D-->NormalW
-    assert(NULL == val);
-    mk->writed = *(d->cur);
-    mk->state = MK_NORMAL;
-}
-//empty_w
-void mkEmptyW_Del(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //Empty_w --> del --> Empty_w
-
-}
-void mkEmptyW_Update(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //Empty_w --> update --> Normal_w
-    assert(NULL != val);
-    mkSetValNow(d,mk,val);
-    mk->state = MK_NORMAL;
-}
-//empty_uw
-void mkEmptyUW_Del(dict *d, struct MonkeyKing *mk,void *val)
-{
-    assert(NULL == val);
-}
-void mkEmptyUW_Update(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //EmptyUW --> update --> Update_UW
-    assert( NULL != val);
-    mkSetValNow(d,mk,val);
-    mk->state = MK_UPDATE;
-}
-void mkEmptyUW_W2D(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //EmptyUW --> update --> EmptyW
-    assert(val == NULL);
-    mkFreeValBkp(d,mk);
-    mk->state = MK_EMPTY;
-    mk->writed = *(d->cur);
-}
-//update_uw
-void mkUPdateUW_Del(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //Update_uw --> del -->empty_uw
-    assert( val == NULL);
-    mkFreeValNow(d,mk);
-    mk->state = MK_EMPTY;
-}
-void mkUPdateUW_Update(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //Update_uw --> update --> update_uw
-    assert( val != NULL);
-    mkFreeValNow(d,mk);
-    mkSetValNow(d,mk,val);
-}
-void mkUPdateUW_W2D(dict *d, struct MonkeyKing *mk,void *val)
-{
-    //Update_uw --> w2d --> normal_w
-    assert( val == NULL);
-    mkFreeValBkp(d,mk);
-    mk->writed = *(d->cur);
-    mk->state = MK_NORMAL;
-}
-void mkStateFunctionMatrixInit( void)
-{
-    static unsigned char i = 1;
-
-    if (i){
-        i = 0;
-        memset(StateConvertMatrix,0,sizeof(StateConvertMatrix));
-
-        StateConvertMatrix[MK_NORMAL_UW][OP_DEL]    = mkNormalUW_Del;
-        StateConvertMatrix[MK_NORMAL_UW][OP_UPDATE] = mkNormalUW_Update;
-        StateConvertMatrix[MK_NORMAL_UW][OP_W2D]    = mkNormalUW_W2D;
-
-        StateConvertMatrix[MK_NORMAL_W][OP_DEL]     = mkNormalUW_Del;
-        StateConvertMatrix[MK_NORMAL_W][OP_UPDATE]  = mkNormalW_Update;
-
-        StateConvertMatrix[MK_UPDATE_UW][OP_DEL]    = mkUPdateUW_Del;
-        StateConvertMatrix[MK_UPDATE_UW][OP_W2D]    = mkUPdateUW_W2D;
-        StateConvertMatrix[MK_UPDATE_UW][OP_UPDATE] = mkUPdateUW_Update;
-
-        StateConvertMatrix[MK_EMPTY_UW][OP_DEL]     = mkEmptyUW_Del;
-        StateConvertMatrix[MK_EMPTY_UW][OP_UPDATE]  = mkEmptyUW_Update;
-        StateConvertMatrix[MK_EMPTY_UW][OP_W2D]     = mkEmptyUW_W2D;
-
-        StateConvertMatrix[MK_EMPTY_W][OP_DEL]      = mkEmptyW_Del;
-        StateConvertMatrix[MK_EMPTY_W][OP_UPDATE]   = mkEmptyW_Update;
-
-        memset(mkAssertMatrix,0,sizeof(mkAssertMatrix));
-
-        mkAssertMatrix[MK_EMPTY_UW]     = mkEmptyUW_Assert;
-        mkAssertMatrix[MK_EMPTY_W]      = mkEmptyW_Assert;
-        mkAssertMatrix[MK_NORMAL_UW]    = mkNormalUW_Assert;
-        mkAssertMatrix[MK_NORMAL_W]     = mkNormalW_Assert;
-        mkAssertMatrix[MK_UPDATE_UW]    = mkUpdateUW_Assert;
-    }
-}
-void *mkGetValBkp(struct MonkeyKing *mk)
-{
-    void *retval;
-    mkHold(mk);
-    if ( mk->bkp)
-        retval = mk->bkp;
-    else
-        retval = mk->now;
-    mkRelease(mk);
-    return retval;
-}
-unsigned char getRealState(struct MonkeyKing *mk,unsigned char cur)
-{
-    switch (mk->state){
-
-        case MK_EMPTY:
-            if (mk->writed == cur)
-                return MK_EMPTY_W;
-            else
-                return MK_EMPTY_UW;
-            break;
-        case MK_UPDATE:
-                return MK_UPDATE_UW;
-            break;
-        case MK_NORMAL:
-            if (mk->writed == cur)
-                return MK_NORMAL_W;
-            else
-                return MK_NORMAL_UW;
-            break;
-        default:
-            printf("getRealState error! state %d,cur %d,writed %d\n",(int)mk->state,(int)cur,(int)mk->writed);
-            exit(1);
-            return 255;
-    }
-}
-void mkHold(struct MonkeyKing *mk)
-{
-    unsigned char expect_free = MK_ACCESS_FREE;
-    while(!__atomic_compare_exchange_1(&mk->access,
-                                      &expect_free,
-                                      MK_ACCESS_BUSY,
-                                      0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)){
-        usleep(10);
-        expect_free = MK_ACCESS_FREE;
-    }
-}
-void mkRelease(struct MonkeyKing *mk)
-{
-    __atomic_store_1(&mk->access,MK_ACCESS_FREE,__ATOMIC_SEQ_CST);
-}
-int mkStateConvert(dict *d, struct MonkeyKing *mk,unsigned char operation,void *val,unsigned char cur)
-{
-    unsigned char state;
-    state = getRealState(mk,cur);
-
-//    mkAssertMatrix[state](mk,cur);
-
-    if (*(d->server_state) == SERVER_CKP){
-        mkHold(mk);
-        StateConvertMatrix[state][operation](d,mk,val);
-        mkRelease(mk);
-    }
-    else{
-        StateConvertMatrix[state][operation](d,mk,val);
-    }
-//    state = getRealState(mk,cur);
-//    mkAssertMatrix[state](mk,cur);
-    return 1;
-
-
-}
 /* -------------------------- hash functions -------------------------------- */
 
 /* Thomas Wang's 32 bit Mix Function */
@@ -447,7 +184,7 @@ int _dictInit(dict *d, dictType *type,
     d->rehashidx = -1;
     d->iterators = 0;
     //MK ADD
-    mkStateFunctionMatrixInit();
+
     d->cur = &server.server_cur;
     d->server_state = &server.server_state;
     return DICT_OK;
@@ -590,8 +327,8 @@ int dictAdd(dict *d, void *key, void *val)
     dictEntry *entry = dictAddRaw(d,key);
 
     if (!entry) return DICT_ERR;
-    mkSetValNow(d,&entry->v.mk,val);
-    mkNormalW_Assert(&entry->v.mk,*(d->cur));
+    mkSetNow(&entry->v.mk,val);
+    mkNormalW_Assert(&entry->v.mk);
     return DICT_OK;
 }
 
@@ -627,11 +364,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
     //MK ADD
-    entry->v.mk.access = MK_ACCESS_FREE;
-    entry->v.mk.bkp = NULL;
-    entry->v.mk.now = NULL;
-    entry->v.mk.state = MK_NORMAL;
-    entry->v.mk.writed = *(d->cur);
+    mkInit(&entry->v.mk,d->type->valDup,d->type->valDestructor,d->cur);
     //MK END
     entry->next = ht->table[index];
     ht->table[index] = entry;
@@ -661,7 +394,7 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-    mkStateConvert(d,&entry->v.mk,OP_UPDATE,val,*(d->cur));
+    mkStateConvert(&entry->v.mk,OP_UPDATE,val,server.server_state);
     return 0;
 }
 
@@ -702,13 +435,13 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                         d->ht[table].table[idx] = he->next;
                     if (!nofree) {
                         dictFreeKey(d,he);
-                        mkStateConvert(d,&he->v.mk,OP_DEL,NULL,*(d->cur));
+                        mkStateConvert(&he->v.mk,OP_DEL,NULL,server.server_state);
                     }
                     zfree(he);
                 }
                 else{
                     if (!nofree){
-                        mkStateConvert(d,&he->v.mk,OP_DEL,NULL,*(d->cur));
+                        mkStateConvert(&he->v.mk,OP_DEL,NULL,server.server_state);
                     }
 
                 }
@@ -745,7 +478,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
         while(he) {
             nextHe = he->next;
             dictFreeKey(d, he);
-            mkStateConvert(d,&he->v.mk,OP_DEL,NULL,*(d->cur));
+            mkStateConvert(&he->v.mk,OP_DEL,NULL,server.server_state);
             zfree(he);
             ht->used--;
             he = nextHe;

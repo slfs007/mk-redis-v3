@@ -32,6 +32,7 @@
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
+#include "mk.h"
 
 #include <time.h>
 #include <signal.h>
@@ -1730,10 +1731,12 @@ void initServer(void) {
     //MK ADD
     server.server_state = SERVER_NORMAL;
     server.server_cur = SERVER_CUR_INIT;
+    mkStateFunctionMatrixInit();
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
     pthread_create(&server.rdbThread_id,&attr,rdbThread,NULL);
+
     //MK END
     server.pid = getpid();
     server.current_client = NULL;

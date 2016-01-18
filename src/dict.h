@@ -35,6 +35,7 @@
 
 #include <stdint.h>
 #include "redis.h"
+#include "mk.h"
 #ifndef __DICT_H
 #define __DICT_H
 
@@ -44,31 +45,7 @@
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
 
-#define MK_NORMAL       7
-#define MK_EMPTY        8
-#define MK_UPDATE       9
 
-#define MK_NORMAL_UW    0
-#define MK_NORMAL_W     1
-#define MK_UPDATE_UW    2
-#define MK_EMPTY_UW     3
-#define MK_EMPTY_W      4
-#define MK_MAX          5
-
-#define OP_DEL          0
-#define OP_UPDATE       1
-#define OP_W2D          2
-
-#define OP_MAX          3
-#define MK_ACCESS_BUSY  0
-#define MK_ACCESS_FREE  1
-struct MonkeyKing{
-    void *now;
-    void *bkp;
-    unsigned char state;
-    unsigned char access;
-    unsigned char writed;
-};
 typedef struct dictEntry {
     void *key;
     union {
@@ -129,12 +106,6 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 /* ------------------------------- Macros ------------------------------------*/
 
-#define dictSetVal(d, entry, _val_) do { \
-    if ((d)->type->valDup) \
-        entry->v.mk.now = (d)->type->valDup((d)->privdata, _val_); \
-    else \
-        entry->v.mk.now = (_val_); \
-} while(0)
 
 #define dictSetSignedIntegerVal(entry, _val_) \
     do { entry->v.s64 = _val_; } while(0)
@@ -208,8 +179,5 @@ extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapStringCopyKeyValue;
 //MK ADD
-int mkStateConvert(dict *d, struct MonkeyKing *mk,unsigned char operation,void *val,unsigned char cur);
-void *mkGetValBkp(struct MonkeyKing *mk);
-void mkHold(struct MonkeyKing *mk);
-void mkRelease(struct MonkeyKing *mk);
+
 #endif /* __DICT_H */

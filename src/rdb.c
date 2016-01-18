@@ -611,7 +611,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
 
-                robj *val = mkGetValBkp(&de->v.mk);
+                robj *val = mkGetBkp(&de->v.mk);
 
                 if ( de->v.mk.writed == *(d->cur))
                     continue;
@@ -621,7 +621,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
                 nwritten += n;
                 if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
                 nwritten += n;
-                mkStateConvert(d,&de->v.mk,OP_W2D,NULL,*(d->cur));
+                mkStateConvert(&de->v.mk,OP_W2D,NULL,server.server_state);
             }
             dictReleaseIterator(di);
 
@@ -702,7 +702,7 @@ int rdbSaveRio(rio *rdb, int *error) {
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
-            robj key, *o = mkGetValBkp(&de->v.mk);
+            robj key, *o = mkGetBkp(&de->v.mk);
             long long expire;
             if ( de->v.mk.writed == *(d->cur))
                 continue;
@@ -713,7 +713,7 @@ int rdbSaveRio(rio *rdb, int *error) {
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
 
-            mkStateConvert(d,&de->v.mk,OP_W2D,NULL,*(d->cur));
+            mkStateConvert(&de->v.mk,OP_W2D,NULL,server.server_state);
         }
         dictReleaseIterator(di);
     }
