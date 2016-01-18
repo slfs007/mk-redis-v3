@@ -348,8 +348,8 @@ unsigned int dictSdsHash(const void *key);
 int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri);
 
-void dictInstancesValDestructor (void *privdata, void *obj) {
-    REDIS_NOTUSED(privdata);
+void dictInstancesValDestructor (void *obj) {
+
     releaseSentinelRedisInstance(obj);
 }
 

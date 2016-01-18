@@ -60,10 +60,10 @@ typedef struct dictEntry {
 typedef struct dictType {
     unsigned int (*hashFunction)(const void *key);
     void *(*keyDup)(void *privdata, const void *key);
-    void *(*valDup)(void *privdata, const void *obj);
+    void *(*valDup)(const void *obj);
     int (*keyCompare)(void *privdata, const void *key1, const void *key2);
-    void (*keyDestructor)(void *privdata, void *key);
-    void (*valDestructor)(void *privdata, void *obj);
+    void (*keyDestructor)(void *key);
+    void (*valDestructor)(void *obj);
 } dictType;
 
 /* This is our hash table structure. Every dictionary has two of this as we
@@ -118,7 +118,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
-        (d)->type->keyDestructor((d)->privdata, (entry)->key)
+        (d)->type->keyDestructor((entry)->key)
 
 #define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \

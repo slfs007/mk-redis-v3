@@ -1244,8 +1244,8 @@ void configGetCommand(redisClient *c) {
  * like "maxmemory" -> list of line numbers (first line is zero). */
 unsigned int dictSdsCaseHash(const void *key);
 int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
-void dictSdsDestructor(void *privdata, void *val);
-void dictListDestructor(void *privdata, void *val);
+void dictSdsDestructor(void *val);
+void dictListDestructor(void *val);
 
 /* Sentinel config rewriting is implemented inside sentinel.c by
  * rewriteConfigSentinelOption(). */

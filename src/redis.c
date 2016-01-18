@@ -412,15 +412,13 @@ void exitFromChild(int retcode) {
  * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
-void dictVanillaFree(void *privdata, void *val)
+void dictVanillaFree(void *val)
 {
-    DICT_NOTUSED(privdata);
     zfree(val);
 }
 
-void dictListDestructor(void *privdata, void *val)
+void dictListDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
     listRelease((list*)val);
 }
 
@@ -446,17 +444,15 @@ int dictSdsKeyCaseCompare(void *privdata, const void *key1,
     return strcasecmp(key1, key2) == 0;
 }
 
-void dictRedisObjectDestructor(void *privdata, void *val)
+void dictRedisObjectDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
-
     if (val == NULL) return; /* Values of swapped out keys as set to NULL */
     decrRefCount(val);
 }
 
-void dictSdsDestructor(void *privdata, void *val)
+void dictSdsDestructor(void *val)
 {
-    DICT_NOTUSED(privdata);
+
 
     sdsfree(val);
 }
