@@ -97,6 +97,7 @@ void mkNormalUW_Update(struct MonkeyKing *mk,void *val)
     assert(val != NULL);
     mkFreeNow(mk);
     mkSetNow(mk,val);
+    mk->state=MK_UPDATE;
 }
 void mkNormalUW_Del(struct MonkeyKing *mk,void *val)
 {
